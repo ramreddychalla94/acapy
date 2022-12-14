@@ -1,25 +1,51 @@
 from aiohttp import web
 from aiohttp_apispec import docs, match_info_schema, request_schema, response_schema
+import hmac
+import hashlib
+import json
+import os
+import hashlib
+import uuid
+import hmac
+from datetime import datetime, timedelta
+import base64
 
-from marshmallow import fields
 
-from ....admin.request_context import AdminRequestContext
-from ....connections.models.conn_record import ConnRecord
-from ....messaging.models.openapi import OpenAPISchema
-from ....messaging.valid import UUIDFour
-from ....storage.error import StorageNotFoundError
+async def verify_webhook(data, hmac_header):
+    digest = hmac.new(get_secret_key(), data.encode('utf-8'), digestmod=hashlib.sha256).hexdigest()
+    # computed_hmac = base64.b64encode(digest)
+    return hmac.compare_digest(digest, hmac_header)
+
+def get_secret_key():
+    return os.urandom(64)
+
+@docs(tags=["security"], summary="To provide authentication to ACA-py lib")
+async def generate_token(request: web.BaseRequest) -> json:
+    body = await request.json()
+    data = body.get("message")
+    hmac_digest = hmac.new(get_secret_key(), data.encode('utf-8'), digestmod=hashlib.sha256).hexdigest()
+    #to do
+    hmac_digest.update()
+    return web.json_response({"Token": hmac_digest})
 
 
-@docs(tags=["Security"], summary="To provide authentication to ACA-py lib")
-async def add_security(request: web.BaseRequest):
-    return web.json_response({"message": "This is sample security endpoint"})
+@docs(tags=["security"], summary="To provide authentication to ACA-py lib")
+async def fetch_data(request: web.BaseRequest) -> json:
+    body = await request.json()
+    data = body.get("message")
+    verified = verify_webhook(data, request.headers.get('X-Signature-SHA256'))
+    if not verified:
+        return web.json_response({"message": "Unauthorized Access"})
+    else:
+        return web.json_response({"message": "Access Granted"})
 
 
 async def register(app: web.Application):
-    """Register routes."""
+    """Register routes"""
 
     app.add_routes(
-        [web.post("/provide-security", add_security)]
+        [web.post("/provide-security", generate_token),
+         web.get("/validate-security", fetch_data, allow_head=False)]
     )
 
 
