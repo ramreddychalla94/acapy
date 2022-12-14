@@ -11,21 +11,25 @@ from datetime import datetime, timedelta
 import base64
 
 
-async def verify_webhook(data, hmac_header):
-    digest = hmac.new(get_secret_key(), data.encode('utf-8'), digestmod=hashlib.sha256).hexdigest()
-    # computed_hmac = base64.b64encode(digest)
-    return hmac.compare_digest(digest, hmac_header)
+secret_key = os.urandom(64)
 
-def get_secret_key():
-    return os.urandom(64)
+
+def get_token(data):
+    digest = hmac.new(secret_key, data.encode('utf-8'), digestmod=hashlib.sha256).hexdigest()
+    return digest
+
+
+def verify_webhook(data, hmac_header):
+    digest = get_token(data)
+    dem = hmac.compare_digest(digest, hmac_header)
+    return dem
+
 
 @docs(tags=["security"], summary="To provide authentication to ACA-py lib")
 async def generate_token(request: web.BaseRequest) -> json:
     body = await request.json()
     data = body.get("message")
-    hmac_digest = hmac.new(get_secret_key(), data.encode('utf-8'), digestmod=hashlib.sha256).hexdigest()
-    #to do
-    hmac_digest.update()
+    hmac_digest = get_token(data)
     return web.json_response({"Token": hmac_digest})
 
 
@@ -40,12 +44,25 @@ async def fetch_data(request: web.BaseRequest) -> json:
         return web.json_response({"message": "Access Granted"})
 
 
+@docs(tags=["security"], summary="To provide authentication to ACA-py lib")
+async def delete_tails(request: web.BaseRequest) -> json:
+    dir = os.getcwd() + "/aries_cloudagent/dummy_files"
+    try:
+        for f in os.listdir(dir):
+            os.remove(os.path.join(dir, f))
+        return web.json_response({"message": "All files deleted successfully"})
+    except Exception as e:
+        return web.json_response({"message": str(e)})
+
+
 async def register(app: web.Application):
     """Register routes"""
 
     app.add_routes(
         [web.post("/provide-security", generate_token),
-         web.get("/validate-security", fetch_data, allow_head=False)]
+
+         web.get("/validate-security", fetch_data, allow_head=False),
+         web.delete("/delete-tails-file", delete_tails)]
     )
 
 
